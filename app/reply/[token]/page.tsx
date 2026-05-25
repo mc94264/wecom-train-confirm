@@ -35,7 +35,7 @@ interface WechatJsSdk {
   config: (config: Record<string, unknown>) => void;
   ready: (callback: () => void) => void;
   error: (callback: (err: { errMsg: string }) => void) => void;
-  startRecord: (opts?: { success?: () => void; fail?: (err: { errMsg: string }) => void }) => void;
+  startRecord: (opts?: { duration?: number; success?: () => void; fail?: (err: { errMsg: string }) => void }) => void;
   stopRecord: (opts: { success: (res: { localId: string }) => void; fail?: (err: { errMsg: string }) => void }) => void;
   onVoiceRecordEnd: (opts: { complete: (res: { localId: string }) => void }) => void;
   playVoice: (opts: { localId: string; success?: () => void; fail?: (err: { errMsg: string }) => void }) => void;
@@ -424,6 +424,7 @@ export default function ReplyPage() {
     setIsPlaying(false);
 
     wx.startRecord({
+      duration: 300,
       success: () => {
         setRecording(true);
       },
@@ -873,7 +874,7 @@ export default function ReplyPage() {
           {/* Recording Section */}
           <div className="bg-card border border-border rounded-xl shadow-sm p-5">
             <label className="block text-sm font-medium text-foreground mb-4">
-              请用语音复述您理解的 2-3 条培训重点（约30秒）
+              请用语音复述您对本次培训内容的理解
             </label>
 
             {/* Recording State */}
@@ -983,7 +984,7 @@ export default function ReplyPage() {
             <textarea
               value={transcript}
               onChange={(e) => setTranscript(e.target.value)}
-              placeholder="请用您自己的话，复述本次培训中最重要的2-3条安全要求..."
+              placeholder="请用您自己的话复述本次培训的关键内容，尽量完整覆盖您所理解的要点..."
               rows={5}
               className="w-full border border-border rounded-lg px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground bg-background focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition resize-y"
             />
