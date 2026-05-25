@@ -230,14 +230,14 @@ export default function ReplyPage() {
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [submitError, setSubmitError] = useState('');
-  const [transcribing, setTranscribing] = useState(false);
+  const [processing, setProcessing] = useState(false);
   const [transcribedText, setTranscribedText] = useState('');
 
   const recordTimerRef = useRef<NodeJS.Timeout | null>(null);
   const playTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Load data
-  useEffect(() => {
+  const loadData = () => {
     fetch(`/api/reply/${token}`)
       .then(async (res) => {
         const d = await res.json();
@@ -249,15 +249,48 @@ export default function ReplyPage() {
           setTranscript(d.reply.transcript || '');
           setTranscribedText(d.reply.transcript || '');
           setSubmitted(true);
+          if (d.reply.analysis) {
+            setProcessing(false);
+          }
         }
         setLoading(false);
+        return d;
       })
       .catch((err) => {
         setData(null);
         setSubmitError(err instanceof Error ? err.message : '加载失败，请刷新重试');
         setLoading(false);
       });
+  };
+
+  useEffect(() => {
+    loadData();
   }, [token]);
+
+  function startPolling() {
+    setProcessing(true);
+    let attempts = 0;
+    const maxAttempts = 120; // 最多轮询 6 分钟
+    const timer = setInterval(() => {
+      attempts++;
+      if (attempts > maxAttempts) {
+        clearInterval(timer);
+        setProcessing(false);
+        return;
+      }
+      fetch(`/api/reply/${token}`)
+        .then((res) => res.json())
+        .then((d) => {
+          if (d.reply?.analysis) {
+            loadData();
+            clearInterval(timer);
+          } else if (d.reply?.transcript) {
+            setTranscribedText(d.reply.transcript);
+          }
+        })
+        .catch(() => {});
+    }, 3000);
+  }
 
   // Detect WeCom and init JS-SDK
   useEffect(() => {
@@ -574,7 +607,7 @@ export default function ReplyPage() {
 
               if (postRes.ok) {
                 setSubmitted(true);
-                await autoTranscribe();
+                startPolling();
               } else {
                 setSubmitError('提交失败，请重试');
               }
@@ -602,7 +635,7 @@ export default function ReplyPage() {
 
         if (res.ok) {
           setSubmitted(true);
-          await autoTranscribe();
+          startPolling();
         } else {
           setSubmitError('提交失败，请重试');
         }
@@ -620,6 +653,7 @@ export default function ReplyPage() {
 
         if (res.ok) {
           setSubmitted(true);
+          startPolling();
         } else {
           setSubmitError('提交失败，请重试');
         }
@@ -629,22 +663,6 @@ export default function ReplyPage() {
       setSubmitError('提交失败，请重试');
       setSubmitting(false);
     }
-  }
-
-  async function autoTranscribe() {
-    setTranscribing(true);
-    try {
-      const res = await fetch(`/api/reply/${token}/transcribe`, { method: 'POST' });
-      if (res.ok) {
-        const t = await res.json();
-        setTranscribedText(t.transcript || '');
-        setTranscript(t.transcript || '');
-        await fetch(`/api/reply/${token}/analyze`, { method: 'POST' });
-      }
-    } catch {
-      // ignore
-    }
-    setTranscribing(false);
   }
 
   if (loading) {
@@ -696,12 +714,12 @@ export default function ReplyPage() {
             </p>
           </div>
 
-          {/* Transcribing */}
-          {transcribing && (
+          {/* Processing */}
+          {processing && (
             <div className="bg-card border border-warning/20 rounded-xl p-4 mb-4">
               <div className="flex items-center gap-3">
                 <Spinner className="h-5 w-5 text-warning" />
-                <p className="text-sm text-warning">正在转写语音内容...</p>
+                <p className="text-sm text-warning">系统正在处理您的回复，预计 1-3 分钟...</p>
               </div>
             </div>
           )}

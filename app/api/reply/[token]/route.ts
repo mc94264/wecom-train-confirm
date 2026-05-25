@@ -2,8 +2,125 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { saveFile } from '@/lib/services/storage';
 import { downloadVoice } from '@/lib/services/wecom-jssdk';
+import { transcribeAudio } from '@/lib/services/asr';
+import { analyzeUnderstanding } from '@/lib/services/llm';
+import { sendMessageToUsers } from '@/lib/services/wecom-contact';
 import { existsSync, mkdirSync } from 'fs';
 import { resolve } from 'path';
+import { readFile } from 'fs/promises';
+
+function getMimeTypeFromPath(filePath: string): string {
+  if (filePath.endsWith('.amr')) return 'audio/amr';
+  if (filePath.endsWith('.wav')) return 'audio/wav';
+  if (filePath.endsWith('.mp3')) return 'audio/mpeg';
+  if (filePath.endsWith('.webm')) return 'audio/webm';
+  return 'audio/webm';
+}
+
+async function processReplyPipeline(assignmentId: string, replyId: string) {
+  try {
+    const assignment = await prisma.trainingAssignment.findUnique({
+      where: { id: assignmentId },
+      include: {
+        session: { include: { keyPoints: true } },
+        employee: true,
+        reply: true,
+      },
+    });
+
+    if (!assignment?.reply) return;
+
+    let transcript = assignment.reply.transcript || '';
+
+    // 有音频且无转写时，先转写
+    if (!transcript && assignment.reply.audioPath) {
+      try {
+        const audioBuffer = await readFile(assignment.reply.audioPath);
+        const mimeType = getMimeTypeFromPath(assignment.reply.audioPath);
+        transcript = await transcribeAudio(audioBuffer, mimeType);
+      } catch (err) {
+        console.error('转写失败:', err);
+      }
+
+      if (!transcript) {
+        transcript = '（ASR 转写失败）';
+      }
+
+      await prisma.employeeReply.update({
+        where: { id: replyId },
+        data: { transcript },
+      });
+
+      await prisma.trainingAssignment.update({
+        where: { id: assignmentId },
+        data: { status: 'transcribed' },
+      });
+    }
+
+    // 有转写内容时，进行分析
+    if (transcript) {
+      const keyPoints = assignment.session.keyPoints.map((kp) => kp.title);
+      const result = await analyzeUnderstanding(
+        assignment.session.sourceTranscript || '',
+        keyPoints,
+        transcript,
+      );
+
+      await prisma.understandingAnalysis.upsert({
+        where: { replyId },
+        create: {
+          replyId,
+          coverageScore: result.coverage_score,
+          accuracyScore: result.accuracy_score,
+          overallScore: result.overall_score,
+          level: result.level,
+          coveredPoints: result.covered_points.join(','),
+          missingPoints: result.missing_points.join(','),
+          wrongPoints: result.wrong_points.join(','),
+          riskLevel: result.risk_level,
+          summary: result.summary,
+          correctionSuggestion: result.correction_suggestion,
+          rawAiResult: JSON.stringify(result),
+        },
+        update: {
+          coverageScore: result.coverage_score,
+          accuracyScore: result.accuracy_score,
+          overallScore: result.overall_score,
+          level: result.level,
+          coveredPoints: result.covered_points.join(','),
+          missingPoints: result.missing_points.join(','),
+          wrongPoints: result.wrong_points.join(','),
+          riskLevel: result.risk_level,
+          summary: result.summary,
+          correctionSuggestion: result.correction_suggestion,
+          rawAiResult: JSON.stringify(result),
+        },
+      });
+
+      await prisma.trainingAssignment.update({
+        where: { id: assignmentId },
+        data: { status: 'analyzed' },
+      });
+
+      // 发分析结果通知给员工
+      if (assignment.employee.wecomUserId) {
+        try {
+          const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
+          const resultUrl = `${baseUrl}/reply/${assignment.uniqueToken}`;
+          const levelEmoji = result.level === '理解到位' ? '✅' : result.level === '基本理解' ? '⚠️' : '❌';
+
+          const content = `**培训效果分析结果通知**\n\n**${assignment.employee.name}** 您好，\n\n您参与的培训「**${assignment.session.title}**」已完成效果分析。\n\n${levelEmoji} **理解程度**：${result.level}\n\n\u{1F4CA} **综合得分**：${result.overall_score} 分\n\n\u{1F4DD} **评价摘要**：\n${result.summary}\n\n\u{1F449} [点击查看详细分析结果](${resultUrl})`;
+
+          await sendMessageToUsers([assignment.employee.wecomUserId], content);
+        } catch (err) {
+          console.error('发送分析结果通知失败:', err);
+        }
+      }
+    }
+  } catch (err) {
+    console.error('回复处理流水线失败:', err);
+  }
+}
 
 export async function GET(
   _request: NextRequest,
@@ -117,6 +234,11 @@ export async function POST(
       where: { id: assignment.id },
       data: { repliedAt: new Date(), status: 'replied' },
     });
+
+    // 后台自动执行：转写 → 分析 → 发消息
+    processReplyPipeline(assignment.id, reply.id).catch((err) =>
+      console.error('后台处理管道失败:', err)
+    );
 
     return NextResponse.json(reply);
   } catch (error) {
