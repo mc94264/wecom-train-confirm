@@ -558,6 +558,15 @@ export default function SessionDetailPage() {
                           详情
                         </button>
                       )}
+                      <button
+                        onClick={() => {
+                          const url = `${window.location.origin}/reply/${emp.uniqueToken}`;
+                          navigator.clipboard.writeText(url).then(() => alert('链接已复制到剪贴板'));
+                        }}
+                        className="text-xs bg-emerald-50 text-emerald-600 px-2.5 py-1 rounded-md hover:bg-emerald-100 transition"
+                      >
+                        复制链接
+                      </button>
                     </div>
                   </td>
                 </tr>

@@ -210,6 +210,10 @@ export default function ReplyPage() {
   const [isWecom, setIsWecom] = useState(false);
   const [wxReady, setWxReady] = useState(false);
   const [wxError, setWxError] = useState('');
+  const [forceBrowserMode, setForceBrowserMode] = useState(false);
+
+  // Effective mode: use WeCom recording only when JS-SDK is ready and not forced to browser
+  const effectiveWecom = isWecom && wxReady && !forceBrowserMode;
 
   // Recording state (WeCom)
   const [recording, setRecording] = useState(false);
@@ -391,7 +395,7 @@ export default function ReplyPage() {
 
   // Play timer (fallback only)
   useEffect(() => {
-    if (isPlaying && !isWecom) {
+    if (isPlaying && !effectiveWecom) {
       playTimerRef.current = setInterval(() => {
         setPlayTime((prev) => {
           if (prev >= audioDuration) {
@@ -508,7 +512,7 @@ export default function ReplyPage() {
       mediaRecorder.start();
       setRecording(true);
     } catch {
-      setSubmitError('无法访问麦克风，请在企业微信中打开此页面');
+      setSubmitError('无法访问麦克风，请检查浏览器权限设置');
     }
   }
 
@@ -550,7 +554,7 @@ export default function ReplyPage() {
 
   // Unified handlers
   function startRecord() {
-    if (isWecom && wxReady) {
+    if (effectiveWecom) {
       startWecomRecord();
     } else {
       startBrowserRecord();
@@ -558,7 +562,7 @@ export default function ReplyPage() {
   }
 
   function stopRecord() {
-    if (isWecom && wxReady) {
+    if (effectiveWecom) {
       stopWecomRecord();
     } else {
       stopBrowserRecord();
@@ -566,7 +570,7 @@ export default function ReplyPage() {
   }
 
   function deleteRecord() {
-    if (isWecom && wxReady) {
+    if (effectiveWecom) {
       deleteWecomRecord();
     } else {
       deleteBrowserRecord();
@@ -577,7 +581,7 @@ export default function ReplyPage() {
     e.preventDefault();
     setSubmitError('');
 
-    const hasRecording = isWecom ? !!localId : !!audioBlob;
+    const hasRecording = effectiveWecom ? !!localId : !!audioBlob;
     if (!hasRecording && !transcript.trim()) {
       setSubmitError('请录制语音或手动输入复述内容');
       return;
@@ -586,7 +590,7 @@ export default function ReplyPage() {
     setSubmitting(true);
 
     try {
-      if (isWecom && localId) {
+      if (effectiveWecom && localId) {
         const wx = window.wx;
         if (!wx) throw new Error('JS-SDK 未加载');
 
@@ -857,9 +861,20 @@ export default function ReplyPage() {
           </div>
         )}
         {isWecom && wxError && (
-          <div className="flex items-center gap-2.5 bg-destructive/5 border border-destructive/15 rounded-xl px-4 py-3.5 mb-4">
-            <AlertIcon className="w-4 h-4 text-destructive shrink-0" />
-            <p className="text-sm text-destructive">{wxError}</p>
+          <div className="flex flex-col gap-2 bg-destructive/5 border border-destructive/15 rounded-xl px-4 py-3.5 mb-4">
+            <div className="flex items-center gap-2.5">
+              <AlertIcon className="w-4 h-4 text-destructive shrink-0" />
+              <p className="text-sm text-destructive">{wxError}</p>
+            </div>
+            {!forceBrowserMode && (
+              <button
+                type="button"
+                onClick={() => setForceBrowserMode(true)}
+                className="self-start text-xs bg-primary/10 text-primary px-3 py-1.5 rounded-md hover:bg-primary/20 transition"
+              >
+                使用浏览器录音
+              </button>
+            )}
           </div>
         )}
         {!isWecom && (
@@ -903,7 +918,7 @@ export default function ReplyPage() {
                   <button
                     type="button"
                     onClick={() => {
-                      if (isWecom) {
+                      if (effectiveWecom) {
                         if (isPlaying) stopWecomVoice();
                         else playWecomVoice();
                       } else {
@@ -916,7 +931,7 @@ export default function ReplyPage() {
                     {isPlaying ? <PauseIcon className="w-5 h-5" /> : <PlayIcon className="w-5 h-5 ml-0.5" />}
                   </button>
                   <div className="flex-1 min-w-0">
-                    {isWecom ? (
+                    {effectiveWecom ? (
                       <p className="text-sm text-muted-foreground">
                         已录音 <span className="font-mono tabular-nums">{formatTime(recordTime)}</span>
                       </p>
@@ -963,14 +978,14 @@ export default function ReplyPage() {
                 <button
                   type="button"
                   onClick={startRecord}
-                  disabled={isWecom && !wxReady}
+                  disabled={isWecom && !wxReady && !forceBrowserMode}
                   className="w-20 h-20 rounded-full bg-primary text-white flex items-center justify-center shadow-lg shadow-primary/25 hover:bg-primary/90 disabled:opacity-40 disabled:shadow-none active:scale-95 transition"
                   aria-label="开始录音"
                 >
                   <MicIcon className="w-8 h-8" />
                 </button>
                 <p className="text-sm text-muted-foreground">
-                  {isWecom && !wxReady ? '正在初始化录音...' : '点击麦克风开始录音'}
+                  {isWecom && !wxReady && !forceBrowserMode ? '正在初始化录音...' : '点击麦克风开始录音'}
                 </p>
               </div>
             )}
@@ -1001,7 +1016,7 @@ export default function ReplyPage() {
           {/* Submit Button */}
           <button
             type="submit"
-            disabled={submitting || (isWecom && !wxReady)}
+            disabled={submitting || (isWecom && !wxReady && !forceBrowserMode)}
             className="w-full inline-flex items-center justify-center gap-2 bg-primary text-primary-foreground py-3.5 rounded-xl hover:bg-primary/90 disabled:opacity-50 shadow-md shadow-primary/20 active:scale-[0.98] transition font-medium"
           >
             {submitting ? (
