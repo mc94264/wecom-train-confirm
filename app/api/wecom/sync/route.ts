@@ -7,11 +7,13 @@ export async function POST() {
     const users = await getUserList(3);
     let created = 0;
     let updated = 0;
+    const activeUserIds = new Set<string>();
 
     for (const user of users) {
       // Skip inactive users (status 4 = 已禁用)
       if (user.status === 4) continue;
 
+      activeUserIds.add(user.userid);
       const department = user.department?.[0];
       const existing = await prisma.employee.findFirst({
         where: { wecomUserId: user.userid },
@@ -24,6 +26,7 @@ export async function POST() {
             name: user.name,
             phone: user.mobile || existing.phone,
             team: String(department) || existing.team,
+            isActive: true,
           },
         });
         updated++;
@@ -34,13 +37,28 @@ export async function POST() {
             wecomUserId: user.userid,
             phone: user.mobile || null,
             team: String(department) || null,
+            isActive: true,
           },
         });
         created++;
       }
     }
 
-    return NextResponse.json({ created, updated, total: users.length });
+    // Mark employees not in WeCom as inactive
+    const inactiveCount = await prisma.employee.updateMany({
+      where: {
+        wecomUserId: { notIn: Array.from(activeUserIds) },
+        isActive: true,
+      },
+      data: { isActive: false },
+    });
+
+    return NextResponse.json({
+      created,
+      updated,
+      inactive: inactiveCount.count,
+      total: users.length,
+    });
   } catch (error) {
     console.error('同步通讯录失败:', error);
     return NextResponse.json(

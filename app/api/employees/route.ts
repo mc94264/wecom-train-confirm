@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 
 export async function GET() {
   const employees = await prisma.employee.findMany({
+    where: { isActive: true },
     orderBy: { name: 'asc' },
   });
   return NextResponse.json(employees);
@@ -18,7 +19,7 @@ export async function POST(request: NextRequest) {
     }
 
     const employee = await prisma.employee.create({
-      data: { name, team, phone, employeeCode },
+      data: { name, team, phone, employeeCode, isActive: true },
     });
 
     return NextResponse.json(employee, { status: 201 });
