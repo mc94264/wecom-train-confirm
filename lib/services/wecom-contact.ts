@@ -30,10 +30,11 @@ export async function getDepartmentList(): Promise<WecomDepartment[]> {
   return data.department || [];
 }
 
-export async function getUserList(departmentId: number): Promise<WecomUser[]> {
+export async function getUserList(departmentId: number, fetchChild: boolean = true): Promise<WecomUser[]> {
   const accessToken = await getAccessToken();
+  const fetchChildParam = fetchChild ? 1 : 0;
   const res = await fetch(
-    `https://qyapi.weixin.qq.com/cgi-bin/user/list?access_token=${accessToken}&department_id=${departmentId}&fetch_child=1`
+    `https://qyapi.weixin.qq.com/cgi-bin/user/list?access_token=${accessToken}&department_id=${departmentId}&fetch_child=${fetchChildParam}`
   );
   const data = await res.json();
 

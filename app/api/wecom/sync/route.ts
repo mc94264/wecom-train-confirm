@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server';
-import { getAllUsers } from '@/lib/services/wecom-contact';
+import { getUserList } from '@/lib/services/wecom-contact';
 import { prisma } from '@/lib/prisma';
 
 export async function POST() {
   try {
-    const users = await getAllUsers();
+    const users = await getUserList(3);
     let created = 0;
     let updated = 0;
 
